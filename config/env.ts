@@ -89,6 +89,13 @@ export const env = {
     process.env.NODE_ENV === "production" || process.env.VERCEL === "1"
       ? ""
       : process.env.OTP_BYPASS_CODE?.trim() || "",
+  // Test phone numbers (comma-separated, with country code) that sign in with
+  // OTP_TEST_CODE instead of an SMS. Works in production too, for these numbers only.
+  otpTestNumbers: (process.env.OTP_TEST_NUMBERS ?? "")
+    .split(",")
+    .map((n) => n.replace(/[\s().-]/g, ""))
+    .filter((n) => /^\+\d{8,15}$/.test(n)),
+  otpTestCode: process.env.OTP_TEST_CODE?.trim() || "123456",
   // Lifetime of the token that links a verified phone to /auth/register.
   signupTokenExpiresIn: "15m",
   bulkSms: {

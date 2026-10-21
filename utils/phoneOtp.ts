@@ -46,8 +46,15 @@ function smsError(code?: number): ApiError {
   return new ApiError(502, "Could not send the code. Please try again");
 }
 
+/** A test number from OTP_TEST_NUMBERS: signs in with OTP_TEST_CODE, no SMS. */
+export const isTestNumber = (phone: string) => env.otpTestNumbers.includes(phone);
+
 /** Makes a new code for this phone and texts it. `phone` must be E.164, e.g. +447700900123. */
 export async function sendOtp(phone: string): Promise<void> {
+  if (isTestNumber(phone)) {
+    console.log(`[otp] test number ${phone}: no SMS, sign in with the test code.`);
+    return;
+  }
   const now = new Date();
   const existing = await OtpCode.findOne({ phone });
 
@@ -88,23 +95,24 @@ export async function sendOtp(phone: string): Promise<void> {
   if (sms.status === "sent") return;
   if (sms.status === "skipped" && sms.reason === "Test number") return; // logged by sendSms
   if (sms.status === "skipped" && env.otpBypassCode) return; // dev without SMS: use the bypass code
+  // Nothing reached the phone: drop the code, and don't count this try
+  // against the resend wait or the hourly limit.
+  await OtpCode.updateOne({ phone }, { $unset: { codeHash: 1 }, $set: { sentAt: new Date(0) }, $inc: { sendCount: -1 } });
   if (sms.status === "failed" && env.otpBypassCode) {
     // Dev: don't lock anyone out while SMS isn't working; the bypass code still signs in.
     console.warn(`[otp] SMS failed (${sms.code}); sign in with the dev bypass code instead.`);
-    await OtpCode.updateOne({ phone }, { $unset: { codeHash: 1 } });
     return;
   }
-
-  // The patient never got this code, so don't leave it usable.
-  await OtpCode.updateOne({ phone }, { $unset: { codeHash: 1 } });
   if (sms.status === "skipped") throw new ApiError(500, "SMS sign-in is not configured");
   throw smsError(sms.code);
 }
 
 /** True when the code is right for this phone. Each code works once. */
 export async function checkOtp(phone: string, code: string): Promise<boolean> {
-  // Dev only (never set in production): a fixed code for test accounts.
+  // Dev only (never set in production): a fixed code for any number.
   if (env.otpBypassCode && code === env.otpBypassCode) return true;
+  // Test numbers: the test code, in any environment.
+  if (isTestNumber(phone)) return code === env.otpTestCode;
 
   // Count the guess first, so parallel guesses can't get past the limit.
   const row = await OtpCode.findOneAndUpdate(
