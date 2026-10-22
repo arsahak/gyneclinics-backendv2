@@ -14,6 +14,11 @@ export interface IConsultationPayment {
   reference: string;
   details?: string;
   paidAt?: Date;
+  /** "stripe" for paid bookings, "free" when there was nothing to pay. Missing on bookings made before Stripe. */
+  provider?: "stripe" | "free";
+  /** The Stripe PaymentIntent (pi_…); also used as `reference`. */
+  stripePaymentIntentId?: string;
+  stripeChargeId?: string;
 }
 
 export interface ISmsLog {
@@ -38,6 +43,10 @@ export interface IConsultation extends Document {
   status: (typeof CONSULTATION_STATUSES)[number];
   /** Booking confirmation text to the patient. */
   confirmationSms?: ISmsLog;
+  /** The commission rate when it was booked (later rate changes don't touch it). Missing = 20%, the rate before this was stored. */
+  commissionRate?: number;
+  /** Set when staff record a refund (after sending the money back). */
+  refund?: { at: Date; reason: string; by?: mongoose.Types.ObjectId; stripeRefundId?: string };
   createdAt: Date;
   updatedAt: Date;
 }
@@ -79,6 +88,8 @@ const smsLogSchema = new Schema<ISmsLog>(
  *             reference: { type: string }
  *             details: { type: string }
  *             paidAt: { type: string, format: date-time }
+ *             provider: { type: string, enum: [stripe, free] }
+ *             stripePaymentIntentId: { type: string }
  *         confirmationSms:
  *           type: object
  *           properties:
@@ -102,14 +113,32 @@ const consultationSchema = new Schema<IConsultation>(
       reference: { type: String, required: true, trim: true },
       details: { type: String, trim: true },
       paidAt: Date,
+      provider: { type: String, enum: ["stripe", "free"] },
+      stripePaymentIntentId: { type: String, trim: true },
+      stripeChargeId: { type: String, trim: true },
     },
     status: { type: String, enum: CONSULTATION_STATUSES, default: "confirmed" },
     confirmationSms: { type: smsLogSchema },
+    commissionRate: { type: Number, min: 0, max: 0.5 },
+    refund: {
+      type: new Schema(
+        {
+          at: { type: Date, required: true },
+          reason: { type: String, required: true, trim: true, maxlength: 300 },
+          // Missing when it was refunded straight in Stripe.
+          by: { type: Schema.Types.ObjectId, ref: "User" },
+          stripeRefundId: String,
+        },
+        { _id: false }
+      ),
+    },
   },
   { timestamps: true }
 );
 
 consultationSchema.index({ patient: 1, startsAt: -1 });
+// One booking per Stripe payment, however many times it's confirmed (app + webhook).
+consultationSchema.index({ "payment.stripePaymentIntentId": 1 }, { unique: true, partialFilterExpression: { "payment.stripePaymentIntentId": { $type: "string" } } });
 
 consultationSchema.set("toJSON", {
   transform: (_doc, ret) => {

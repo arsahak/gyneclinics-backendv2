@@ -1,22 +1,30 @@
 import { Router } from "express";
 import {
-  createStaff,
   getMe,
   updateAvatar,
-  listStaff,
-  updateStaff,
-  deleteStaff,
   updateMe,
   deleteMe,
   changePassword,
   removeAvatar,
 } from "../controllers/user.controller";
+import {
+  createStaff,
+  deleteStaff,
+  getPermissions,
+  listStaff,
+  savePermissions,
+  setStaffPassword,
+  updateStaff,
+} from "../controllers/team.controller";
 import { protect, authorize } from "../middleware/auth";
+import { requireAccess } from "../utils/permissions";
 import { validate } from "../middleware/validate";
 import { upload } from "../middleware/upload";
 import {
   createStaffRules,
   updateStaffRules,
+  staffPasswordRules,
+  savePermissionsRules,
   updateMeRules,
   changePasswordRules,
 } from "../validators/user.validator";
@@ -27,7 +35,7 @@ const router = Router();
  * @swagger
  * tags:
  *   name: Users
- *   description: Staff user management (admin/superadmin only)
+ *   description: Your account, the dashboard team, and access by role
  */
 
 /**
@@ -36,9 +44,8 @@ const router = Router();
  *   post:
  *     summary: Create a moderator, admin, or superadmin account
  *     description: >
- *       Requires a Bearer token from /auth/staff/login. A superadmin can create
- *       moderator, admin, or superadmin accounts. An admin can only create moderator
- *       accounts. Moderators cannot access this endpoint at all.
+ *       Needs "team: manage" (set in Team & Roles). A super admin can add any role;
+ *       anyone else only roles below theirs (an admin adds moderators).
  *     tags: [Users]
  *     security:
  *       - bearerAuth: []
@@ -107,23 +114,17 @@ const router = Router();
  *             schema:
  *               $ref: '#/components/schemas/ApiErrorResponse'
  */
-router.post(
-  "/staff",
-  protect,
-  authorize("admin", "superadmin"),
-  createStaffRules,
-  validate,
-  createStaff
-);
+router.post("/staff", protect, requireAccess("team", "manage"), createStaffRules, validate, createStaff);
 
 /**
  * @swagger
  * /users/staff:
  *   get:
- *     summary: List manageable staff accounts (admin/superadmin only)
+ *     summary: The dashboard team (needs "team: view")
  *     description: >
- *       A superadmin sees moderator, admin, and superadmin accounts. An admin
- *       sees moderator and admin accounts.
+ *       Every staff account, with `isYou` and `canManage` (whether you may change them:
+ *       super admins manage every role, others only roles below theirs with "team: manage").
+ *       data: { members, manageableRoles }
  *     tags: [Users]
  *     security:
  *       - bearerAuth: []
@@ -156,7 +157,7 @@ router.post(
  *             schema:
  *               $ref: '#/components/schemas/ApiErrorResponse'
  */
-router.get("/staff", protect, authorize("admin", "superadmin"), listStaff);
+router.get("/staff", protect, requireAccess("team", "view"), listStaff);
 
 /**
  * @swagger
@@ -290,14 +291,56 @@ router.get("/staff", protect, authorize("admin", "superadmin"), listStaff);
  */
 router
   .route("/staff/:id")
-  .patch(
-    protect,
-    authorize("admin", "superadmin"),
-    updateStaffRules,
-    validate,
-    updateStaff
-  )
-  .delete(protect, authorize("admin", "superadmin"), deleteStaff);
+  .patch(protect, requireAccess("team", "manage"), updateStaffRules, validate, updateStaff)
+  .delete(protect, requireAccess("team", "manage"), deleteStaff);
+
+/**
+ * @swagger
+ * /users/staff/{id}/password:
+ *   patch:
+ *     summary: Set a new password for a team member
+ *     description: Needs "team: manage" and a role above theirs (super admins can do anyone but themselves).
+ *     tags: [Users]
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema: { type: object, required: [password], properties: { password: { type: string, minLength: 6 } } }
+ *     responses:
+ *       200: { description: Password set }
+ * /users/permissions:
+ *   get:
+ *     summary: Dashboard access by role (any staff)
+ *     description: >
+ *       Areas (one per dashboard page), each role's level (none, view, manage), your own access,
+ *       who each role can add, member counts and the change history. Super admins always have full access.
+ *     tags: [Users]
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: "data: { areas, roles, defaults, myRole, mine, canEdit, manageableRoles, canAdd, counts, history }" }
+ *   put:
+ *     summary: Change what admins and moderators can open (super admin)
+ *     tags: [Users]
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [roles]
+ *             properties:
+ *               roles:
+ *                 type: object
+ *                 example: { admin: { payments: view }, moderator: { patients: none } }
+ *     responses:
+ *       200: { description: "Saved; applies right away. data: { roles, changes }" }
+ *       422: { description: Unknown area or a level that area doesn't have }
+ */
+router.patch("/staff/:id/password", protect, requireAccess("team", "manage"), staffPasswordRules, validate, setStaffPassword);
+router.get("/permissions", protect, getPermissions);
+router.put("/permissions", protect, authorize("superadmin"), savePermissionsRules, validate, savePermissions);
 
 /**
  * @swagger

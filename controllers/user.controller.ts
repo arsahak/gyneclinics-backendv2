@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import { User, type StaffRole, type UserRole } from "../models/user.model";
+import { User } from "../models/user.model";
 import { asyncHandler } from "../middleware/asyncHandler";
 import { ApiResponse } from "../utils/ApiResponse";
 import { ApiError } from "../utils/ApiError";
@@ -14,139 +14,8 @@ async function reviewedDoctorFor(user: Express.Request["user"]) {
   return doctor && photoNeedsReview(doctor) ? doctor : null;
 }
 
-// Which staff roles each role may create, update and delete.
-const CREATABLE_ROLES_BY: Record<UserRole, StaffRole[]> = {
-  superadmin: ["moderator", "admin", "superadmin"],
-  admin: ["moderator"],
-  moderator: [],
-  doctor: [],
-  patient: [],
-  customer: [],
-};
-
-export const createStaff = asyncHandler(async (req: Request, res: Response) => {
-  const { fullName, phone, email, avatar, password, role } = req.body;
-
-  const requester = req.user!;
-  const allowedRoles = CREATABLE_ROLES_BY[requester.role];
-
-  if (!(allowedRoles as string[]).includes(role)) {
-    throw new ApiError(
-      403,
-      `You are not allowed to create a user with role "${role}"`
-    );
-  }
-
-  if (email) {
-    const existing = await User.findOne({ email: String(email).toLowerCase() });
-    if (existing) throw new ApiError(409, "Email is already registered");
-  }
-
-  if (phone) {
-    const existing = await User.findOne({ phone });
-    if (existing) throw new ApiError(409, "Phone number is already registered");
-  }
-
-  const user = await User.create({
-    fullName,
-    phone,
-    email,
-    emailVerified: true,
-    avatar,
-    password,
-    role,
-  });
-
-  return ApiResponse(res, 201, "Staff user created successfully", user);
-});
-
 export const getMe = asyncHandler(async (req: Request, res: Response) => {
   return ApiResponse(res, 200, "Profile fetched successfully", req.user);
-});
-
-// Roles & Permissions: viewing is broader than managing — a requester always
-// sees their own role tier too (peers + self), even though CREATABLE_ROLES_BY
-// (used for create/update/delete below) may not let them manage that tier.
-// superadmin sees moderator/admin/superadmin; admin sees moderator/admin.
-export const listStaff = asyncHandler(async (req: Request, res: Response) => {
-  const requester = req.user!;
-  const manageableRoles = CREATABLE_ROLES_BY[requester.role];
-  const visibleRoles: UserRole[] = Array.from(
-    new Set<UserRole>([...manageableRoles, requester.role])
-  );
-
-  const staff = await User.find({ role: { $in: visibleRoles } }).sort({
-    createdAt: -1,
-  });
-
-  return ApiResponse(res, 200, "Staff fetched successfully", staff);
-});
-
-export const updateStaff = asyncHandler(async (req: Request, res: Response) => {
-  const requester = req.user!;
-  const manageableRoles = CREATABLE_ROLES_BY[requester.role];
-
-  const target = await User.findOne({
-    _id: req.params.id,
-    role: { $in: manageableRoles },
-  });
-  if (!target) throw new ApiError(404, "Staff member not found");
-
-  if (target.id === requester.id) {
-    throw new ApiError(
-      400,
-      "Use your own profile settings to update your account"
-    );
-  }
-
-  const { fullName, email, phone, role } = req.body;
-
-  if (role !== undefined && !(manageableRoles as string[]).includes(role)) {
-    throw new ApiError(
-      403,
-      `You are not allowed to assign the role "${role}"`
-    );
-  }
-
-  if (email && email.toLowerCase() !== target.email) {
-    const existing = await User.findOne({ email: String(email).toLowerCase() });
-    if (existing) throw new ApiError(409, "Email is already registered");
-  }
-
-  if (phone && phone !== target.phone) {
-    const existing = await User.findOne({ phone });
-    if (existing) throw new ApiError(409, "Phone number is already registered");
-  }
-
-  if (fullName !== undefined) target.fullName = fullName;
-  if (email !== undefined) target.email = email;
-  if (phone !== undefined) target.phone = phone;
-  if (role !== undefined) target.role = role;
-
-  await target.save();
-
-  return ApiResponse(res, 200, "Staff member updated successfully", target);
-});
-
-export const deleteStaff = asyncHandler(async (req: Request, res: Response) => {
-  const requester = req.user!;
-  const manageableRoles = CREATABLE_ROLES_BY[requester.role];
-
-  const target = await User.findOne({
-    _id: req.params.id,
-    role: { $in: manageableRoles },
-  });
-  if (!target) throw new ApiError(404, "Staff member not found");
-
-  if (target.id === requester.id) {
-    throw new ApiError(400, "You cannot delete your own account");
-  }
-
-  const avatarKey = target.avatarKey;
-  await target.deleteOne();
-  if (avatarKey) await deleteStoredFile(avatarKey);
-
-  return ApiResponse(res, 200, "Staff member deleted successfully");
 });
 
 // General settings: any authenticated user editing their own account.

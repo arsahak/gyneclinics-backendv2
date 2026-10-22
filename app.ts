@@ -6,6 +6,7 @@ import { env } from "./config/env";
 import { connectDB } from "./config/db";
 import { swaggerHtml, swaggerSpec } from "./config/swagger";
 import routes from "./routes";
+import { stripeWebhook } from "./controllers/stripeWebhook.controller";
 import { notFound } from "./middleware/notFound";
 import { errorHandler } from "./middleware/errorHandler";
 
@@ -28,6 +29,8 @@ app.use(
     credentials: true,
   })
 );
+// Stripe signs the raw body, so its webhook is read before the JSON parser.
+app.post("/api/v1/stripe/webhook", express.raw({ type: "application/json" }), stripeWebhook);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

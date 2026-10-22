@@ -42,6 +42,19 @@ export const updateStaffRules: ValidationChain[] = [
     .optional()
     .isIn(STAFF_ROLES)
     .withMessage(`Role must be one of: ${STAFF_ROLES.join(", ")}`),
+  body("isActive").optional().isBoolean().withMessage("isActive must be true or false").toBoolean(),
+  body("suspensionReason").optional().isString().isLength({ max: 300 }).withMessage("Reason is too long (300 characters)"),
+];
+
+export const staffPasswordRules: ValidationChain[] = [
+  body("password").isString().isLength({ min: 6, max: 128 }).withMessage("Password must be at least 6 characters"),
+];
+
+export const savePermissionsRules: ValidationChain[] = [
+  body("roles").isObject().withMessage("roles must be an object, e.g. { admin: { payments: \"view\" } }"),
+  body("roles")
+    .custom((value: Record<string, unknown>) => Object.keys(value).every((k) => k === "admin" || k === "moderator"))
+    .withMessage("Only admin and moderator access can be changed; super admins always have full access"),
 ];
 
 export const updateMeRules: ValidationChain[] = [

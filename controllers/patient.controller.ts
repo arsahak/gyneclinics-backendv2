@@ -6,6 +6,7 @@ import { ApiError } from "../utils/ApiError";
 import { ApiResponse } from "../utils/ApiResponse";
 import { assertContactFree } from "../utils/contact";
 import { sessionFor } from "../utils/session";
+import { alertStaff, moneyText } from "../utils/staffAlerts";
 
 // Patient endpoints:
 //   - the signed-in patient saves their own health profile (PUT /patients/me)
@@ -37,6 +38,15 @@ export const savePatientProfile = asyncHandler(async (req: Request, res: Respons
   if (b.fullName && b.fullName !== user.fullName) {
     user.fullName = b.fullName;
     await user.save();
+  }
+  if (isNew) {
+    await alertStaff({
+      type: "patient_signup",
+      areas: ["patients"],
+      title: "New patient signed up",
+      body: `${user.fullName || "A patient"} joined${user.country ? ` from ${user.country}` : ""}${profile.pregnancyStatus === "pregnant" ? " · pregnant" : ""}.`,
+      link: `/patient/${user._id}`,
+    });
   }
 
   return ApiResponse(res, isNew ? 201 : 200, "Profile saved", await sessionFor(user, profile));

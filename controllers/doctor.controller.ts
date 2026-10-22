@@ -16,7 +16,9 @@ import {
   stageFields,
   VERIFIED_FIELDS,
 } from "../utils/doctorUpdates";
+import { linkFor, notify } from "../utils/notify";
 import { sessionFor } from "../utils/session";
+import { alertStaff, moneyText } from "../utils/staffAlerts";
 
 /** Create or replace the signed-in doctor's profile (onboarding and profile edit). */
 export const saveDoctorProfile = asyncHandler(async (req: Request, res: Response) => {
@@ -24,6 +26,8 @@ export const saveDoctorProfile = asyncHandler(async (req: Request, res: Response
   const b = req.body;
 
   const profile = (await Doctor.findOne({ user: user._id })) ?? new Doctor({ user: user._id });
+  const isNewDoctor = profile.isNew;
+  const wasRejected = profile.verificationStatus === "rejected";
   // An approved doctor's edits go through PATCH /doctors/me, where they're reviewed.
   if (profile.verificationStatus === "approved" && !profile.isNew) {
     throw new ApiError(409, "Your profile is already approved. Edit it from your profile page");
@@ -63,6 +67,15 @@ export const saveDoctorProfile = asyncHandler(async (req: Request, res: Response
 
   try {
     await profile.save();
+    if (isNewDoctor || (wasRejected && profile.verificationStatus === "pending")) {
+      await alertStaff({
+        type: "doctor_signup",
+        areas: ["doctors"],
+        title: isNewDoctor ? "New doctor to verify" : "Doctor resubmitted for verification",
+        body: `${user.fullName || "A doctor"} · ${profile.specialization}${profile.country ? ` · ${profile.country}` : ""}. Check their registration (${profile.registrationBody} ${profile.registrationNumber}).`,
+        link: `/doctors/${profile._id}`,
+      });
+    }
   } catch (error) {
     if ((error as { code?: number }).code === 11000) {
       throw new ApiError(409, "This registration number is already used by another doctor");
@@ -279,6 +292,16 @@ export const updateDoctor = asyncHandler(async (req: Request, res: Response) => 
   return ApiResponse(res, 200, "Doctor updated", await doctorDetails(doctor.id));
 });
 
+/** Tells the doctor what the team decided (automatic message "profile_reviewed"). */
+async function tellDoctor(doctor: { user: mongoose.Types.ObjectId }, title: string, body: string) {
+  await notify([doctor.user], { autoKey: "profile_reviewed", title, body, link: linkFor("home", "doctor") });
+}
+
+const VERIFIED_TEXT = {
+  approved: ["Your profile is approved", "Your GyneClinics profile is approved. Patients can now find and book you."],
+  rejected: ["Your profile wasn't approved", "Your GyneClinics profile wasn't approved yet."],
+} as const;
+
 export const approveDoctor = asyncHandler(async (req: Request, res: Response) => {
   const doctor = await doctorOr404(req.params.id);
   doctor.verificationStatus = "approved";
@@ -286,6 +309,7 @@ export const approveDoctor = asyncHandler(async (req: Request, res: Response) =>
   doctor.verifiedAt = new Date();
   doctor.rejectionReason = undefined;
   await doctor.save();
+  await tellDoctor(doctor, ...VERIFIED_TEXT.approved);
   return ApiResponse(res, 200, "Doctor approved", await doctorDetails(doctor.id));
 });
 
@@ -296,6 +320,7 @@ export const rejectDoctor = asyncHandler(async (req: Request, res: Response) => 
   doctor.verifiedAt = new Date();
   doctor.rejectionReason = req.body.reason || undefined;
   await doctor.save();
+  await tellDoctor(doctor, VERIFIED_TEXT.rejected[0], `${VERIFIED_TEXT.rejected[1]}${doctor.rejectionReason ? ` ${doctor.rejectionReason}` : ""}`);
   return ApiResponse(res, 200, "Doctor rejected", await doctorDetails(doctor.id));
 });
 
@@ -313,6 +338,8 @@ export const setDoctorVerification = asyncHandler(async (req: Request, res: Resp
   }
   doctor.rejectionReason = status === "rejected" ? req.body.reason || undefined : undefined;
   await doctor.save();
+  if (status === "approved") await tellDoctor(doctor, ...VERIFIED_TEXT.approved);
+  if (status === "rejected") await tellDoctor(doctor, VERIFIED_TEXT.rejected[0], `${VERIFIED_TEXT.rejected[1]}${doctor.rejectionReason ? ` ${doctor.rejectionReason}` : ""}`);
   return ApiResponse(res, 200, `Doctor marked as ${status}`, await doctorDetails(doctor.id));
 });
 
@@ -463,6 +490,15 @@ export const updateMyDoctorProfile = asyncHandler(async (req: Request, res: Resp
   }
   try {
     await doctor.save();
+    if (Object.keys(toReview).length > 0) {
+      await alertStaff({
+        type: "doctor_update",
+        areas: ["doctors"],
+        title: "Doctor profile update to review",
+        body: `${user.fullName || "A doctor"} changed: ${Object.keys(toReview).join(", ")}.`,
+        link: `/doctors/${doctor._id}`,
+      });
+    }
   } catch (error) {
     if ((error as { code?: number }).code === 11000) {
       throw new ApiError(409, "This registration number is already used by another doctor");
@@ -501,6 +537,7 @@ async function doctorWithUser(id: string) {
 export const approveDoctorUpdate = asyncHandler(async (req: Request, res: Response) => {
   const { doctor, user } = await doctorWithUser(req.params.id);
   await approvePendingUpdate(doctor, user);
+  await tellDoctor(doctor, "Profile changes approved", "Your profile changes are approved and patients can see them now.");
   return ApiResponse(res, 200, "Profile update approved", await doctorDetails(doctor.id));
 });
 
@@ -508,6 +545,7 @@ export const approveDoctorUpdate = asyncHandler(async (req: Request, res: Respon
 export const rejectDoctorUpdate = asyncHandler(async (req: Request, res: Response) => {
   const doctor = await doctorOr404(req.params.id);
   await rejectPendingUpdate(doctor, req.body.reason);
+  await tellDoctor(doctor, "Profile changes not approved", `Your profile changes weren't approved.${req.body.reason ? ` ${req.body.reason}` : ""} Patients still see your current profile.`);
   return ApiResponse(res, 200, "Profile update rejected", await doctorDetails(doctor.id));
 });
 

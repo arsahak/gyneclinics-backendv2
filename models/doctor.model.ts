@@ -92,6 +92,10 @@ export interface IDoctor extends Document {
   documents: IDoctorDocument[];
   schedule: ISchedule;
   messaging: IMessaging;
+  /** A special commission for this doctor (0–0.5), set in Fees & Commission. */
+  commissionOverride?: { rate: number; note?: string; updatedAt: Date };
+  /** Where withdrawals are sent (Stripe Connect). Never in JSON. */
+  stripeAccount?: IStripeAccount;
   isOnline: boolean;
   verificationStatus: VerificationStatus;
   verifiedBy?: mongoose.Types.ObjectId;
@@ -160,6 +164,45 @@ const scheduleSchema = new Schema<ISchedule>(
       default: [],
     },
     timezone: { type: String, trim: true, default: "Europe/London" },
+  },
+  { _id: false }
+);
+
+/**
+ * The doctor's Stripe Connect (Express) account, where their earnings are sent.
+ * Stripe holds the bank or card details; this is a copy of its status, refreshed
+ * whenever the doctor opens Earnings and from the account.updated webhook.
+ */
+export interface IStripeAccount {
+  id: string;
+  /** The doctor finished Stripe's sign-up form. */
+  detailsSubmitted: boolean;
+  /** Stripe can pay out to their bank or card. */
+  payoutsEnabled: boolean;
+  /** We can transfer money to the account. */
+  transfersActive: boolean;
+  /** What Stripe still needs from the doctor, e.g. "individual.verification.document". */
+  requirementsDue: string[];
+  disabledReason?: string;
+  /** Where Stripe pays them, e.g. "Barclays •••• 6789" or "Visa debit •••• 4242". */
+  destination?: { type: "bank_account" | "card"; label: string; last4: string; currency?: string };
+  country?: string;
+  updatedAt: Date;
+}
+
+const stripeAccountSchema = new Schema<IStripeAccount>(
+  {
+    id: { type: String, required: true },
+    detailsSubmitted: { type: Boolean, default: false },
+    payoutsEnabled: { type: Boolean, default: false },
+    transfersActive: { type: Boolean, default: false },
+    requirementsDue: { type: [String], default: [] },
+    disabledReason: String,
+    destination: {
+      type: new Schema({ type: { type: String, enum: ["bank_account", "card"] }, label: String, last4: String, currency: String }, { _id: false }),
+    },
+    country: String,
+    updatedAt: { type: Date, default: Date.now },
   },
   { _id: false }
 );
@@ -400,6 +443,17 @@ const doctorSchema = new Schema<IDoctor>(
     documents: { type: [documentSchema], default: [] },
     schedule: { type: scheduleSchema, default: () => ({}) },
     messaging: { type: messagingSchema, default: () => ({}) },
+    stripeAccount: { type: stripeAccountSchema },
+    commissionOverride: {
+      type: new Schema(
+        {
+          rate: { type: Number, required: true, min: 0, max: 0.5 },
+          note: { type: String, trim: true, maxlength: 200 },
+          updatedAt: { type: Date, default: Date.now },
+        },
+        { _id: false }
+      ),
+    },
     isOnline: { type: Boolean, default: false },
     verificationStatus: {
       type: String,
@@ -423,12 +477,17 @@ const doctorSchema = new Schema<IDoctor>(
 // Patient doctor list: approved doctors, filtered by specialization.
 doctorSchema.index({ verificationStatus: 1, specialization: 1, rating: -1 });
 doctorSchema.index({ registrationNumber: 1, registrationBody: 1 }, { unique: true });
+doctorSchema.index({ "stripeAccount.id": 1 }, { sparse: true });
 // Admin list: doctors with an update to review.
 doctorSchema.index({ "pendingUpdate.submittedAt": -1 }, { sparse: true });
 
 doctorSchema.set("toJSON", {
   transform: (_doc, ret) => {
-    const { __v, documents, pendingUpdate, ...rest } = ret as typeof ret & { __v?: number };
+    const { __v, documents, pendingUpdate, stripeAccount: _stripeAccount, commissionOverride: _commission, ...rest } = ret as typeof ret & {
+      __v?: number;
+      stripeAccount?: unknown;
+      commissionOverride?: unknown;
+    };
     // Storage keys are internal; clients only need the URL.
     const { avatarKey: _avatarKey, ...pending } = (pendingUpdate ?? {}) as Partial<IPendingUpdate>;
     return {

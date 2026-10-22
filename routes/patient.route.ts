@@ -9,6 +9,7 @@ import {
   updatePatient,
 } from "../controllers/patient.controller";
 import { authorize, protect } from "../middleware/auth";
+import { requireAccess } from "../utils/permissions";
 import { validate } from "../middleware/validate";
 import {
   createPatientRules,
@@ -87,7 +88,8 @@ router.put("/me", protect, authorize("patient"), patientProfileRules, validate, 
 
 // ── Admin: patient management (admin and superadmin only) ───────────────────
 
-const adminOnly = [protect, authorize("admin", "superadmin")];
+const canView = [protect, requireAccess("patients", "view")];
+const canManage = [protect, requireAccess("patients", "manage")];
 
 /**
  * @swagger
@@ -149,7 +151,7 @@ const adminOnly = [protect, authorize("admin", "superadmin")];
  *       403:
  *         description: Not an admin
  */
-router.get("/", ...adminOnly, listPatientsRules, validate, listPatients);
+router.get("/", ...canView, listPatientsRules, validate, listPatients);
 
 /**
  * @swagger
@@ -198,7 +200,7 @@ router.get("/", ...adminOnly, listPatientsRules, validate, listPatients);
  *       422:
  *         description: Validation failed
  */
-router.post("/", ...adminOnly, createPatientRules, validate, createPatient);
+router.post("/", ...canManage, createPatientRules, validate, createPatient);
 
 /**
  * @swagger
@@ -216,7 +218,7 @@ router.post("/", ...adminOnly, createPatientRules, validate, createPatient);
  *       404:
  *         description: Patient not found
  */
-router.get("/:id", ...adminOnly, patientIdRules, validate, getPatient);
+router.get("/:id", ...canView, patientIdRules, validate, getPatient);
 
 /**
  * @swagger
@@ -248,7 +250,7 @@ router.get("/:id", ...adminOnly, patientIdRules, validate, getPatient);
  *       409:
  *         description: Phone or email already registered
  */
-router.patch("/:id", ...adminOnly, updatePatientRules, validate, updatePatient);
+router.patch("/:id", ...canManage, updatePatientRules, validate, updatePatient);
 
 /**
  * @swagger
@@ -275,7 +277,7 @@ router.patch("/:id", ...adminOnly, updatePatientRules, validate, updatePatient);
  *       404:
  *         description: Patient not found
  */
-router.patch("/:id/suspend", ...adminOnly, suspendPatientRules, validate, suspendPatient);
+router.patch("/:id/suspend", ...canManage, suspendPatientRules, validate, suspendPatient);
 
 /**
  * @swagger
@@ -293,6 +295,6 @@ router.patch("/:id/suspend", ...adminOnly, suspendPatientRules, validate, suspen
  *       404:
  *         description: Patient not found
  */
-router.patch("/:id/unsuspend", ...adminOnly, patientIdRules, validate, unsuspendPatient);
+router.patch("/:id/unsuspend", ...canManage, patientIdRules, validate, unsuspendPatient);
 
 export default router;

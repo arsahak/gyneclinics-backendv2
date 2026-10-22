@@ -246,13 +246,58 @@ userSchema.pre("save", async function (next) {
 userSchema.post("deleteOne", { document: true, query: false }, async function () {
   const profileModel = { patient: "Patient", doctor: "Doctor" }[this.role as string];
   let pendingPhotoKey: string | undefined;
+  let profileId: mongoose.Types.ObjectId | undefined;
   if (profileModel && mongoose.models[profileModel]) {
     const profile = await mongoose.models[profileModel].findOneAndDelete({ user: this._id }).lean<{
+      _id: mongoose.Types.ObjectId;
       pendingUpdate?: { avatarKey?: string };
     }>();
     pendingPhotoKey = profile?.pendingUpdate?.avatarKey;
+    profileId = profile?._id;
   }
-  await Promise.all([deleteStoredFile(this.avatarKey), deleteStoredFile(pendingPhotoKey)]);
+  // Their notifications go too.
+  await mongoose.connection.collection("notifications").deleteMany({ user: this._id });
+  // Their chats go too (messages and safety flags included).
+  const chatOwner = this.role === "patient" ? { patient: this._id } : this.role === "doctor" && profileId ? { doctor: profileId } : null;
+  if (chatOwner) {
+    const chatIds = await mongoose.connection.collection("chats").distinct("_id", chatOwner);
+    if (chatIds.length) {
+      await Promise.all([
+        mongoose.connection.collection("chatmessages").deleteMany({ chat: { $in: chatIds } }),
+        mongoose.connection.collection("chatflags").deleteMany({ chat: { $in: chatIds } }),
+        mongoose.connection.collection("chats").deleteMany({ _id: { $in: chatIds } }),
+      ]);
+    }
+  }
+  // Reviews go too: a patient's own reviews (their doctors' ratings are
+  // recalculated), or all reviews of a deleted doctor.
+  const reviews = mongoose.connection.collection("reviews");
+  if (this.role === "doctor" && profileId) await reviews.deleteMany({ doctor: profileId });
+  if (this.role === "patient") {
+    const doctorIds = await reviews.distinct("doctor", { patient: this._id });
+    await reviews.deleteMany({ patient: this._id });
+    for (const doctorId of doctorIds) {
+      const [row] = await reviews
+        .aggregate<{ avg: number; n: number }>([
+          { $match: { doctor: doctorId, status: "published" } },
+          { $group: { _id: null, avg: { $avg: "$rating" }, n: { $sum: 1 } } },
+        ])
+        .toArray();
+      await mongoose.connection
+        .collection("doctors")
+        .updateOne({ _id: doctorId }, { $set: { rating: row ? Math.round(row.avg * 10) / 10 : 0, reviewCount: row?.n ?? 0 } });
+    }
+  }
+  // A patient's community stories go with the account. Uses the collection
+  // directly, so it works even where the Story model isn't loaded (scripts).
+  let storyImageKeys: string[] = [];
+  if (this.role === "patient") {
+    const stories = mongoose.connection.collection("stories");
+    const own = await stories.find({ patient: this._id }, { projection: { imageKey: 1 } }).toArray();
+    storyImageKeys = own.map((s) => s.imageKey as string | undefined).filter((k): k is string => Boolean(k));
+    await stories.deleteMany({ patient: this._id });
+  }
+  await Promise.all([deleteStoredFile(this.avatarKey), deleteStoredFile(pendingPhotoKey), ...storyImageKeys.map((k) => deleteStoredFile(k))]);
 });
 
 userSchema.methods.comparePassword = function (candidate: string): Promise<boolean> {

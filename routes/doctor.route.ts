@@ -21,6 +21,7 @@ import {
   updateMyDoctorProfile,
 } from "../controllers/doctor.controller";
 import { authorize, protect } from "../middleware/auth";
+import { requireAccess } from "../utils/permissions";
 import { validate } from "../middleware/validate";
 import {
   autoApproveDoctorRules,
@@ -200,7 +201,8 @@ router.get("/directory/:id", protect, doctorIdRules, validate, getDirectoryDocto
 
 // ── Admin (admin and superadmin only) ───────────────────────────────────────
 
-const adminOnly = [protect, authorize("admin", "superadmin")];
+const canView = [protect, requireAccess("doctors", "view")];
+const canManage = [protect, requireAccess("doctors", "manage")];
 
 /**
  * @swagger
@@ -280,8 +282,8 @@ const adminOnly = [protect, authorize("admin", "superadmin")];
  *       409:
  *         description: Phone, email or registration number already used
  */
-router.get("/", ...adminOnly, listDoctorsRules, validate, listDoctors);
-router.post("/", ...adminOnly, createDoctorRules, validate, createDoctor);
+router.get("/", ...canView, listDoctorsRules, validate, listDoctors);
+router.post("/", ...canManage, createDoctorRules, validate, createDoctor);
 
 /**
  * @swagger
@@ -321,9 +323,9 @@ router.post("/", ...adminOnly, createDoctorRules, validate, createDoctor);
  *       200:
  *         description: Deleted
  */
-router.get("/:id", ...adminOnly, doctorIdRules, validate, getDoctor);
-router.patch("/:id", ...adminOnly, updateDoctorRules, validate, updateDoctor);
-router.delete("/:id", ...adminOnly, doctorIdRules, validate, deleteDoctor);
+router.get("/:id", ...canView, doctorIdRules, validate, getDoctor);
+router.patch("/:id", ...canManage, updateDoctorRules, validate, updateDoctor);
+router.delete("/:id", ...canManage, doctorIdRules, validate, deleteDoctor);
 
 /**
  * @swagger
@@ -406,8 +408,8 @@ router.delete("/:id", ...adminOnly, doctorIdRules, validate, deleteDoctor);
  *       200:
  *         description: "data: AdminDoctor"
  */
-router.patch("/:id/approve", ...adminOnly, doctorIdRules, validate, approveDoctor);
-router.patch("/:id/reject", ...adminOnly, rejectDoctorRules, validate, rejectDoctor);
+router.patch("/:id/approve", ...canManage, doctorIdRules, validate, approveDoctor);
+router.patch("/:id/reject", ...canManage, rejectDoctorRules, validate, rejectDoctor);
 
 /**
  * @swagger
@@ -434,10 +436,10 @@ router.patch("/:id/reject", ...adminOnly, rejectDoctorRules, validate, rejectDoc
  *       200:
  *         description: "data: AdminDoctor"
  */
-router.patch("/:id/verification", ...adminOnly, verificationDoctorRules, validate, setDoctorVerification);
-router.patch("/:id/suspend", ...adminOnly, suspendDoctorRules, validate, suspendDoctor);
-router.patch("/:id/unsuspend", ...adminOnly, doctorIdRules, validate, unsuspendDoctor);
-router.patch("/:id/feature", ...adminOnly, featureDoctorRules, validate, featureDoctor);
+router.patch("/:id/verification", ...canManage, verificationDoctorRules, validate, setDoctorVerification);
+router.patch("/:id/suspend", ...canManage, suspendDoctorRules, validate, suspendDoctor);
+router.patch("/:id/unsuspend", ...canManage, doctorIdRules, validate, unsuspendDoctor);
+router.patch("/:id/feature", ...canManage, featureDoctorRules, validate, featureDoctor);
 
 /**
  * @swagger
@@ -496,8 +498,8 @@ router.patch("/:id/feature", ...adminOnly, featureDoctorRules, validate, feature
  *       200:
  *         description: "data: AdminDoctor"
  */
-router.patch("/:id/update/approve", ...adminOnly, doctorIdRules, validate, approveDoctorUpdate);
-router.patch("/:id/update/reject", ...adminOnly, rejectDoctorUpdateRules, validate, rejectDoctorUpdate);
-router.patch("/:id/auto-approve", ...adminOnly, autoApproveDoctorRules, validate, setDoctorAutoApprove);
+router.patch("/:id/update/approve", ...canManage, doctorIdRules, validate, approveDoctorUpdate);
+router.patch("/:id/update/reject", ...canManage, rejectDoctorUpdateRules, validate, rejectDoctorUpdate);
+router.patch("/:id/auto-approve", ...canManage, autoApproveDoctorRules, validate, setDoctorAutoApprove);
 
 export default router;

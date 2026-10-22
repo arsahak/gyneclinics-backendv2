@@ -102,4 +102,15 @@ export const env = {
     apiKey: process.env.BULKSMS_API_KEY || "",
     senderId: process.env.BULKSMS_SENDER_ID || "",
   },
+  // Patients pay through Stripe; doctors are paid through Stripe Connect.
+  stripe: {
+    secretKey: process.env.STRIPE_SECRET_KEY?.trim() || "",
+    // Public by design: the webapp needs it to show Stripe's card form.
+    publishableKey: process.env.STRIPE_PUBLISHABLE_KEY?.trim() || "",
+    // Signing secret of the webhook endpoint for events on our own account.
+    webhookSecret: process.env.STRIPE_WEBHOOK_SECRET?.trim() || "",
+    // Signing secret of the endpoint for events on connected accounts (doctors). Stripe
+    // gives each endpoint its own secret; the Stripe CLI uses one for both.
+    connectWebhookSecret: process.env.STRIPE_CONNECT_WEBHOOK_SECRET?.trim() || "",
+  },
 };
