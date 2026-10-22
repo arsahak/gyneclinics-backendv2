@@ -13,6 +13,13 @@ npm run dev
 - API docs: `http://localhost:<PORT>/api-docs`
 - Health check: `http://localhost:<PORT>/api/v1/health`
 
+## Deploy to Vercel
+
+Set the Vercel project root to `backend`. The `api/index.ts` function serves the
+Express app, and `vercel.json` rewrites requests to that function. Configure
+`MONGO_URI` and `JWT_SECRET` in the Vercel project environment variables before
+deploying.
+
 ## Environment
 
 Required: `MONGO_URI`, `JWT_SECRET`.
