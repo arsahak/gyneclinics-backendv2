@@ -17,7 +17,9 @@
     "seed:cosmetics-categories": "ts-node scripts/seedCosmaticsCatogory.ts",
     "seed:best-for": "ts-node scripts/seedBestFor.ts",
     "seed:best-for:icons": "ts-node scripts/seedBestFor.ts --icons",
-    "seed:products": "ts-node scripts/seedProducts.ts"
+    "seed:products": "ts-node scripts/seedProducts.ts",
+    "seed:test-doctors": "ts-node scripts/seedTestDoctors.ts",
+    "seed:test-doctors:remove": "ts-node scripts/seedTestDoctors.ts --remove"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1136.0",
