@@ -1,4 +1,5 @@
-import { Router } from "express";
+import { type Request, Router } from "express";
+import { env } from "../config/env";
 import {
   acceptConsent,
   getSession,
@@ -10,6 +11,7 @@ import {
 import { authorize, protect } from "../middleware/auth";
 import { rateLimit } from "../middleware/rateLimit";
 import { validate } from "../middleware/validate";
+import { isTestNumber } from "../utils/phoneOtp";
 import {
   registerRules,
   sendOtpRules,
@@ -20,9 +22,30 @@ import {
 const router = Router();
 
 const FIFTEEN_MINUTES = 15 * 60 * 1000;
-// Per IP. Twilio Verify also limits sends and attempts per phone number.
-const sendLimit = rateLimit({ windowMs: FIFTEEN_MINUTES, max: 5, message: "Too many codes requested. Please try again later" });
-const verifyLimit = rateLimit({ windowMs: FIFTEEN_MINUTES, max: 10, message: "Too many attempts. Please try again later" });
+
+// Test numbers get no SMS, so they're never limited (handy for QA and app review).
+const forTestNumber = (req: Request) => {
+  const phone = typeof req.body?.phone === "string" ? req.body.phone.replace(/[\s().-]/g, "") : "";
+  return Boolean(phone) && isTestNumber(phone);
+};
+
+// Per IP, in production only: in development every request comes from the
+// same machine. Each phone number also has its own resend wait and hourly
+// limit (utils/phoneOtp.ts), which always apply.
+const sendLimit = rateLimit({
+  windowMs: FIFTEEN_MINUTES,
+  max: 5,
+  message: "Too many codes requested. Please try again later",
+  enabled: env.isProduction,
+  skip: forTestNumber,
+});
+const verifyLimit = rateLimit({
+  windowMs: FIFTEEN_MINUTES,
+  max: 10,
+  message: "Too many attempts. Please try again later",
+  enabled: env.isProduction,
+  skip: forTestNumber,
+});
 const loginLimit = rateLimit({ windowMs: FIFTEEN_MINUTES, max: 10, message: "Too many sign-in attempts. Please try again later" });
 
 /**

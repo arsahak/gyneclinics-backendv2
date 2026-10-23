@@ -9,6 +9,8 @@ interface RateLimitOptions {
   message: string;
   /** Set false to let every request through (e.g. outside production). */
   enabled?: boolean;
+  /** Requests this returns true for are not counted or limited. */
+  skip?: (req: Request) => boolean;
 }
 
 /**
@@ -21,11 +23,12 @@ export const rateLimit = ({
   max,
   message,
   enabled = true,
+  skip,
 }: RateLimitOptions) => {
   const hits = new Map<string, { count: number; resetAt: number }>();
 
   return (req: Request, _res: Response, next: NextFunction) => {
-    if (!enabled) return next();
+    if (!enabled || skip?.(req)) return next();
 
     const now = Date.now();
     // The storefront calls the API from its own server and passes the
