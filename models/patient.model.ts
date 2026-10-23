@@ -29,6 +29,10 @@ export interface IPatient extends Document {
   /** Required while pregnancyStatus is "pregnant". */
   dueDate?: Date;
   reminders: IReminderSettings;
+  /** Slugs of saved Learn articles, newest first. */
+  bookmarks: string[];
+  /** When the onboarding answers were copied into the health logs (internal). */
+  trackerSeededAt?: Date;
   /** Set when the patient finishes onboarding. */
   onboardedAt?: Date;
   createdAt: Date;
@@ -95,6 +99,10 @@ const reminderSchema = new Schema<IReminderSettings>(
  *               type: boolean
  *             dailyLogReminder:
  *               type: boolean
+ *         bookmarks:
+ *           type: array
+ *           items: { type: string }
+ *           description: Slugs of saved Learn articles, newest first
  *         onboardedAt:
  *           type: string
  *           format: date-time
@@ -127,6 +135,8 @@ const patientSchema = new Schema<IPatient>(
     },
     dueDate: { type: Date },
     reminders: { type: reminderSchema, default: () => ({}) },
+    bookmarks: { type: [String], default: [] },
+    trackerSeededAt: { type: Date },
     onboardedAt: { type: Date },
   },
   { timestamps: true }

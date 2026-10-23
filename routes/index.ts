@@ -18,6 +18,7 @@ import settingsRoutes from "./settings.route";
 import dashboardRoutes from "./dashboard.route";
 import staffNotificationRoutes from "./staffNotification.route";
 import storyRoutes from "./story.route";
+import trackerRoutes from "./tracker.route";
 import uploadRoutes from "./upload.route";
 import userRoutes from "./user.route";
 import videoRoutes from "./video.route";
@@ -46,6 +47,7 @@ router.get("/health", (_req, res) => {
 router.use("/auth", authRoutes);
 router.use("/users", userRoutes);
 router.use("/patients", patientRoutes);
+router.use("/tracker", trackerRoutes);
 router.use("/doctors", doctorRoutes);
 router.use("/consultations", consultationRoutes);
 router.use("/video", videoRoutes);

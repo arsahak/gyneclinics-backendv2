@@ -52,6 +52,19 @@ function healthRules(prefix = "", onlyIf?: string): ValidationChain[] {
 /** PUT /patients/me — the full profile from patient onboarding or profile edit. */
 export const patientProfileRules: ValidationChain[] = [fullNameRule(), ...healthRules()];
 
+/** PATCH /patients/me/reminders — send only what changes. */
+export const remindersRules: ValidationChain[] = [
+  body("periodReminder").optional().isBoolean().withMessage("periodReminder must be true or false").toBoolean(),
+  body("daysBefore").optional().isInt({ min: 0, max: 7 }).withMessage("Days before must be 0–7").toInt(),
+  body("fertileReminder").optional().isBoolean().withMessage("fertileReminder must be true or false").toBoolean(),
+  body("dailyLogReminder").optional().isBoolean().withMessage("dailyLogReminder must be true or false").toBoolean(),
+];
+
+/** A Learn article slug (also "community-<id>" for stories). */
+export const bookmarkRules: ValidationChain[] = [
+  param("slug").matches(/^[a-z0-9-]{1,100}$/i).withMessage("Invalid article"),
+];
+
 // ── Admin patient management ────────────────────────────────────────────────
 
 export const listPatientsRules: ValidationChain[] = [

@@ -476,6 +476,7 @@ export const updateMyDoctorProfile = asyncHandler(async (req: Request, res: Resp
   if (b.schedule) doctor.set("schedule", { ...doctor.toObject().schedule, ...b.schedule });
   // How patients can reach the doctor is saved straight away, like the schedule.
   applyMessaging(doctor, b.messaging);
+  if (typeof b.isOnline === "boolean") doctor.isOnline = b.isOnline;
 
   const inReview = Object.keys(toReview).length > 0 ? await stageFields(doctor, user, toReview) : Boolean(doctor.pendingUpdate);
 

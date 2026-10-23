@@ -6,7 +6,7 @@ import { User } from "../models/user.model";
 import { ApiError } from "../utils/ApiError";
 import { ApiResponse } from "../utils/ApiResponse";
 import { CONSULTATION_STAGES, consultationTimes, stageFilter, stageOf, type ConsultationStage } from "../utils/consultationStage";
-import { bookableDoctor, newBookingReference, saveBooking } from "../utils/booking";
+import { assertSlotFree, bookableDoctor, bookedStarts, newBookingReference, saveBooking } from "../utils/booking";
 import { getFees } from "../utils/money";
 import { REGION_IDS, regionalFee, type RegionId } from "../utils/regions";
 
@@ -26,6 +26,7 @@ export const createConsultation = asyncHandler(async (req: Request, res: Respons
   if (b.mode === "scheduled" && startsAt.getTime() < Date.now() - 5 * 60_000) {
     throw new ApiError(422, "That time has already passed. Please pick another slot");
   }
+  if (b.mode === "scheduled") await assertSlotFree(doctor._id, startsAt);
 
   try {
     const { consultation, sms } = await saveBooking({
@@ -117,4 +118,80 @@ export const listConsultations = asyncHandler(async (req: Request, res: Response
       .map((d) => ({ _id: d._id, name: (d.user as unknown as { fullName?: string } | null)?.fullName ?? "Doctor" }))
       .sort((a, b) => a.name.localeCompare(b.name)),
   });
+});
+
+// ── The signed-in patient or doctor ─────────────────────────────────────────
+
+interface MineRow {
+  reference: string;
+  mode: string;
+  concern: string;
+  startsAt: Date;
+  timezone?: string;
+  status: string;
+  createdAt: Date;
+  updatedAt: Date;
+  payment: { amount: number; currency: string; regionId: string; method: string; reference: string; details?: string; paidAt?: Date };
+  refund?: { at: Date };
+  patient?: { _id: unknown; fullName?: string; avatar?: string } | null;
+  doctor?: { _id: unknown; title?: string; specialization?: string; user?: { fullName?: string; avatar?: string } | null } | null;
+}
+
+/**
+ * Your own consultations, newest start first: a patient's bookings with the
+ * doctor, or a doctor's bookings with the patient. Payment ids and the
+ * commission stay on the server.
+ */
+export const listMyConsultations = asyncHandler(async (req: Request, res: Response) => {
+  const user = req.user!;
+  let filter: Record<string, unknown>;
+  if (user.role === "doctor") {
+    const doctor = await Doctor.findOne({ user: user._id }).select("_id");
+    if (!doctor) return ApiResponse(res, 200, "Consultations fetched", []);
+    filter = { doctor: doctor._id };
+  } else {
+    filter = { patient: user._id };
+  }
+
+  const rows = await Consultation.find(filter)
+    .sort({ startsAt: -1 })
+    .limit(300)
+    .select("reference mode concern startsAt timezone status createdAt updatedAt payment refund patient doctor")
+    .populate("patient", "fullName avatar")
+    .populate({ path: "doctor", select: "title specialization user", populate: { path: "user", select: "fullName avatar" } })
+    .lean<MineRow[]>();
+
+  const now = new Date();
+  const consultations = rows.map((c) => ({
+    reference: c.reference,
+    mode: c.mode,
+    concern: c.concern,
+    startsAt: c.startsAt,
+    timezone: c.timezone,
+    status: c.status,
+    stage: stageOf(c, now),
+    bookedAt: c.createdAt,
+    // "completed" = the doctor closed the chat early.
+    completedAt: c.status === "completed" ? c.updatedAt : undefined,
+    refundedAt: c.status === "refunded" ? c.refund?.at ?? c.updatedAt : undefined,
+    payment: {
+      amount: c.payment.amount,
+      currency: c.payment.currency,
+      regionId: c.payment.regionId,
+      method: c.payment.method,
+      reference: c.payment.reference,
+      details: c.payment.details,
+      paidAt: c.payment.paidAt,
+    },
+    doctor: c.doctor
+      ? { _id: c.doctor._id, title: c.doctor.title, specialization: c.doctor.specialization, fullName: c.doctor.user?.fullName, avatar: c.doctor.user?.avatar }
+      : null,
+    patient: user.role === "doctor" && c.patient ? { _id: c.patient._id, fullName: c.patient.fullName, avatar: c.patient.avatar } : undefined,
+  }));
+  return ApiResponse(res, 200, "Consultations fetched", consultations);
+});
+
+/** Start times a doctor is already booked for, so the booking page can grey them out. */
+export const listBookedSlots = asyncHandler(async (req: Request, res: Response) => {
+  return ApiResponse(res, 200, "Booked times fetched", await bookedStarts(req.params.id));
 });

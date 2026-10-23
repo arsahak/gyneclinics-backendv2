@@ -43,6 +43,20 @@ export async function bookableDoctor(doctorId: unknown): Promise<{ doctor: IDoct
   return { doctor, doctorUser };
 }
 
+const BOOKED = { mode: "scheduled", status: { $in: ["confirmed", "completed"] } };
+
+/** Start times of a doctor's upcoming scheduled bookings, so patients only see free slots. */
+export async function bookedStarts(doctorId: unknown): Promise<Date[]> {
+  return Consultation.find({ ...BOOKED, doctor: doctorId, startsAt: { $gte: new Date() } }).distinct("startsAt");
+}
+
+/** Refuses a scheduled slot someone else already has. */
+export async function assertSlotFree(doctorId: unknown, startsAt: Date) {
+  if (await Consultation.exists({ ...BOOKED, doctor: doctorId, startsAt })) {
+    throw new ApiError(409, "Someone has just booked this time. Please pick another slot");
+  }
+}
+
 /** "GC-" and 6 letters or digits nobody has used yet. */
 export async function newBookingReference(): Promise<string> {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";

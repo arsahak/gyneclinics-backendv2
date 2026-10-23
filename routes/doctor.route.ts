@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { listBookedSlots } from "../controllers/consultation.controller";
 import {
   approveDoctor,
   approveDoctorUpdate,
@@ -147,7 +148,8 @@ router.put("/me", protect, authorize("doctor"), doctorProfileRules, validate, sa
  *     description: >
  *       Send only what changes. The phone number can't change here. Changing the
  *       registration number, registration body or qualifications sends the doctor
- *       back to review (data.reverification = true).
+ *       back to review (data.reverification = true). `isOnline` (taking new chats
+ *       now), the schedule and messaging settings are saved straight away.
  *     tags: [Doctors]
  *     security:
  *       - bearerAuth: []
@@ -155,7 +157,11 @@ router.put("/me", protect, authorize("doctor"), doctorProfileRules, validate, sa
  *       content:
  *         application/json:
  *           schema:
- *             $ref: '#/components/schemas/AdminDoctorInput'
+ *             allOf:
+ *               - $ref: '#/components/schemas/AdminDoctorInput'
+ *               - type: object
+ *                 properties:
+ *                   isOnline: { type: boolean }
  *     responses:
  *       200:
  *         description: "data: Doctor with user, plus reverification: boolean"
@@ -198,6 +204,21 @@ router.patch("/me", protect, authorize("doctor"), updateMyDoctorRules, validate,
  */
 router.get("/directory", protect, listDirectory);
 router.get("/directory/:id", protect, doctorIdRules, validate, getDirectoryDoctor);
+
+/**
+ * @swagger
+ * /doctors/directory/{id}/booked:
+ *   get:
+ *     summary: Times a doctor is already booked for
+ *     description: Start times of the doctor's upcoming scheduled consultations, so those slots show as taken.
+ *     tags: [Doctors]
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { in: path, name: id, required: true, schema: { type: string } }
+ *     responses:
+ *       200: { description: "data: string[] (ISO date-times)" }
+ */
+router.get("/directory/:id/booked", protect, doctorIdRules, validate, listBookedSlots);
 
 // ── Admin (admin and superadmin only) ───────────────────────────────────────
 

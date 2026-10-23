@@ -7,6 +7,7 @@ import { ApiResponse } from "../utils/ApiResponse";
 import { assertContactFree } from "../utils/contact";
 import { sessionFor } from "../utils/session";
 import { alertStaff, moneyText } from "../utils/staffAlerts";
+import { logProfileChanges } from "../utils/tracker";
 
 // Patient endpoints:
 //   - the signed-in patient saves their own health profile (PUT /patients/me)
@@ -22,6 +23,7 @@ export const savePatientProfile = asyncHandler(async (req: Request, res: Respons
 
   const profile = (await Patient.findOne({ user: user._id })) ?? new Patient({ user: user._id });
   const isNew = profile.isNew;
+  const before = { lastPeriodStart: profile.lastPeriodStart, weightKg: profile.weightKg };
   profile.set({
     dateOfBirth: dateOrUndefined(b.dateOfBirth),
     heightCm: b.heightCm,
@@ -34,6 +36,7 @@ export const savePatientProfile = asyncHandler(async (req: Request, res: Respons
   });
   if (isNew) profile.onboardedAt = new Date();
   await profile.save();
+  await logProfileChanges(profile, before);
 
   if (b.fullName && b.fullName !== user.fullName) {
     user.fullName = b.fullName;
@@ -50,6 +53,50 @@ export const savePatientProfile = asyncHandler(async (req: Request, res: Respons
   }
 
   return ApiResponse(res, isNew ? 201 : 200, "Profile saved", await sessionFor(user, profile));
+});
+
+/** The signed-in patient's profile, or a 404 before onboarding. */
+async function myProfile(userId: unknown) {
+  const profile = await Patient.findOne({ user: userId });
+  if (!profile) throw new ApiError(404, "Complete your profile first");
+  return profile;
+}
+
+/** Turn period, fertile-window and daily-log reminders on or off. Send only what changes. */
+export const updateMyReminders = asyncHandler(async (req: Request, res: Response) => {
+  const profile = await myProfile(req.user!._id);
+  const current = profile.reminders ?? {};
+  const b = req.body;
+  profile.set("reminders", {
+    periodReminder: b.periodReminder ?? current.periodReminder,
+    daysBefore: b.daysBefore ?? current.daysBefore,
+    fertileReminder: b.fertileReminder ?? current.fertileReminder,
+    dailyLogReminder: b.dailyLogReminder ?? current.dailyLogReminder,
+  });
+  await profile.save();
+  return ApiResponse(res, 200, "Reminders saved", profile.reminders);
+});
+
+/** Saved Learn articles (slugs), newest first. */
+export const listMyBookmarks = asyncHandler(async (req: Request, res: Response) => {
+  const profile = await myProfile(req.user!._id);
+  return ApiResponse(res, 200, "Saved articles fetched", profile.bookmarks ?? []);
+});
+
+/** Save an article. Saving it again moves it to the top. */
+export const addMyBookmark = asyncHandler(async (req: Request, res: Response) => {
+  const profile = await myProfile(req.user!._id);
+  const slug = String(req.params.slug);
+  profile.bookmarks = [slug, ...(profile.bookmarks ?? []).filter((s) => s !== slug)].slice(0, 500);
+  await profile.save();
+  return ApiResponse(res, 200, "Article saved", profile.bookmarks);
+});
+
+export const removeMyBookmark = asyncHandler(async (req: Request, res: Response) => {
+  const profile = await myProfile(req.user!._id);
+  profile.bookmarks = (profile.bookmarks ?? []).filter((s) => s !== req.params.slug);
+  await profile.save();
+  return ApiResponse(res, 200, "Article removed from saved", profile.bookmarks);
 });
 
 // ── Admin ───────────────────────────────────────────────────────────────────

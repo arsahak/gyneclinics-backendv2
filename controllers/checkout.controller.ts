@@ -4,7 +4,7 @@ import { asyncHandler } from "../middleware/asyncHandler";
 import { Checkout } from "../models/checkout.model";
 import { ApiError } from "../utils/ApiError";
 import { ApiResponse } from "../utils/ApiResponse";
-import { bookableDoctor, bookFromPaymentIntent, newBookingReference } from "../utils/booking";
+import { assertSlotFree, bookableDoctor, bookFromPaymentIntent, newBookingReference } from "../utils/booking";
 import { getFees } from "../utils/money";
 import { regionalFee, type RegionId } from "../utils/regions";
 import { stripe, stripeError, stripeMode, toMinor } from "../utils/stripe";
@@ -28,6 +28,7 @@ export const startCheckout = asyncHandler(async (req: Request, res: Response) =>
   if (b.mode === "scheduled" && startsAt.getTime() < Date.now() - 5 * 60_000) {
     throw new ApiError(422, "That time has already passed. Please pick another slot");
   }
+  if (b.mode === "scheduled") await assertSlotFree(doctor._id, startsAt);
 
   const reference = await newBookingReference();
   const doctorName = doctorUser.fullName || "your doctor";

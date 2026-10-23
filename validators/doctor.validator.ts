@@ -127,6 +127,7 @@ export const updateMyDoctorRules: ValidationChain[] = [
   ...doctorFieldRules(true),
   ...scheduleRules(),
   ...messagingRules(),
+  body("isOnline").optional().isBoolean().withMessage("isOnline must be true or false").toBoolean(),
 ];
 
 /** PATCH /doctors/:id — admin edits a doctor. Send only what changes. */

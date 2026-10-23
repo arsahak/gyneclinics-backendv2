@@ -296,6 +296,10 @@ userSchema.post("deleteOne", { document: true, query: false }, async function ()
     const own = await stories.find({ patient: this._id }, { projection: { imageKey: 1 } }).toArray();
     storyImageKeys = own.map((s) => s.imageKey as string | undefined).filter((k): k is string => Boolean(k));
     await stories.deleteMany({ patient: this._id });
+    // Their health logs (periods, weight, baby growth) go too.
+    await Promise.all(
+      ["periodlogs", "weightlogs", "babygrowthlogs"].map((name) => mongoose.connection.collection(name).deleteMany({ patient: this._id })),
+    );
   }
   await Promise.all([deleteStoredFile(this.avatarKey), deleteStoredFile(pendingPhotoKey), ...storyImageKeys.map((k) => deleteStoredFile(k))]);
 });

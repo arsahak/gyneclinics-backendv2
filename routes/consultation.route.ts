@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { confirmCheckout, startCheckout } from "../controllers/checkout.controller";
-import { createConsultation, listConsultations } from "../controllers/consultation.controller";
+import { createConsultation, listConsultations, listMyConsultations } from "../controllers/consultation.controller";
 import { authorize, protect } from "../middleware/auth";
 import { requireAccess } from "../utils/permissions";
 import { validate } from "../middleware/validate";
@@ -10,6 +10,7 @@ import { confirmCheckoutRules, createConsultationRules, listConsultationsRules, 
 //   POST /checkout              patient: price + Stripe PaymentIntent for a paid booking
 //   POST /checkout/:id/confirm  patient: Stripe says it's paid → save the booking, text a confirmation
 //   POST /                      patient: a free booking (fee 0)
+//   GET  /mine                  patient or doctor: your own consultations
 //   GET  /                      staff: list (stage, mode, doctor, search, sort, page) with a count per stage
 const router = Router();
 const patient = [protect, authorize("patient")];
@@ -85,6 +86,23 @@ const patient = [protect, authorize("patient")];
 router.post("/checkout", ...patient, startCheckoutRules, validate, startCheckout);
 router.post("/checkout/:paymentIntentId/confirm", ...patient, confirmCheckoutRules, validate, confirmCheckout);
 router.post("/", ...patient, createConsultationRules, validate, createConsultation);
+
+/**
+ * @swagger
+ * /consultations/mine:
+ *   get:
+ *     summary: Your own consultations (patient or doctor)
+ *     description: >
+ *       Newest start first, up to 300. Each has its `stage` (upcoming, live, follow_up,
+ *       completed, cancelled, refunded), the payment the patient made, and the doctor
+ *       (for a doctor, also the patient).
+ *     tags: [Consultations]
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200:
+ *         description: "data: [{ reference, mode, concern, startsAt, status, stage, bookedAt, completedAt, refundedAt, payment, doctor: { _id, title, specialization, fullName, avatar }, patient? }]"
+ */
+router.get("/mine", protect, authorize("patient", "doctor"), listMyConsultations);
 
 /**
  * @swagger

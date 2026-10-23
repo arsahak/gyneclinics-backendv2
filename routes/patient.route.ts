@@ -1,7 +1,11 @@
 import { Router } from "express";
 import {
+  addMyBookmark,
   createPatient,
   getPatient,
+  listMyBookmarks,
+  removeMyBookmark,
+  updateMyReminders,
   listPatients,
   savePatientProfile,
   suspendPatient,
@@ -12,16 +16,20 @@ import { authorize, protect } from "../middleware/auth";
 import { requireAccess } from "../utils/permissions";
 import { validate } from "../middleware/validate";
 import {
+  bookmarkRules,
   createPatientRules,
   listPatientsRules,
   patientIdRules,
   patientProfileRules,
+  remindersRules,
   suspendPatientRules,
   updatePatientRules,
 } from "../validators/patient.validator";
 
 // Mounted at /api/v1/patients.
 //   PUT   /me             the signed-in patient saves their profile
+//   PATCH /me/reminders   the patient's reminder settings
+//   GET   /me/bookmarks   saved Learn articles; PUT / DELETE /me/bookmarks/:slug
 //   GET   /               admin: list patients (search, filter, sort, page, stats)
 //   POST  /               admin: create a patient
 //   GET   /:id            admin: one patient
@@ -85,6 +93,60 @@ const router = Router();
  *         description: Validation failed
  */
 router.put("/me", protect, authorize("patient"), patientProfileRules, validate, savePatientProfile);
+
+const self = [protect, authorize("patient")];
+
+/**
+ * @swagger
+ * /patients/me/reminders:
+ *   patch:
+ *     summary: Change the signed-in patient's reminders
+ *     description: Send only what changes.
+ *     tags: [Patients]
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               periodReminder: { type: boolean }
+ *               daysBefore: { type: integer, minimum: 0, maximum: 7 }
+ *               fertileReminder: { type: boolean }
+ *               dailyLogReminder: { type: boolean }
+ *     responses:
+ *       200: { description: "data: the saved reminder settings" }
+ *       404: { description: Profile not set up yet }
+ * /patients/me/bookmarks:
+ *   get:
+ *     summary: Saved Learn articles (slugs, newest first)
+ *     tags: [Patients]
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: "data: string[]" }
+ * /patients/me/bookmarks/{slug}:
+ *   put:
+ *     summary: Save a Learn article
+ *     tags: [Patients]
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { in: path, name: slug, required: true, schema: { type: string } }
+ *     responses:
+ *       200: { description: "data: the saved slugs" }
+ *   delete:
+ *     summary: Remove a saved Learn article
+ *     tags: [Patients]
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - { in: path, name: slug, required: true, schema: { type: string } }
+ *     responses:
+ *       200: { description: "data: the saved slugs" }
+ */
+router.patch("/me/reminders", ...self, remindersRules, validate, updateMyReminders);
+router.get("/me/bookmarks", ...self, listMyBookmarks);
+router.put("/me/bookmarks/:slug", ...self, bookmarkRules, validate, addMyBookmark);
+router.delete("/me/bookmarks/:slug", ...self, bookmarkRules, validate, removeMyBookmark);
 
 // ── Admin: patient management (admin and superadmin only) ───────────────────
 
