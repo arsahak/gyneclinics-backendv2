@@ -120,7 +120,7 @@ router.post("/staff", protect, requireAccess("team", "manage"), createStaffRules
  * @swagger
  * /users/staff:
  *   get:
- *     summary: The dashboard team (needs "team: view")
+ *     summary: 'The dashboard team (needs "team: view")'
  *     description: >
  *       Every staff account, with `isYou` and `canManage` (whether you may change them:
  *       super admins manage every role, others only roles below theirs with "team: manage").
@@ -299,7 +299,7 @@ router
  * /users/staff/{id}/password:
  *   patch:
  *     summary: Set a new password for a team member
- *     description: Needs "team: manage" and a role above theirs (super admins can do anyone but themselves).
+ *     description: 'Needs "team: manage" and a role above theirs (super admins can do anyone but themselves).'
  *     tags: [Users]
  *     security: [{ bearerAuth: [] }]
  *     requestBody:

@@ -28,7 +28,7 @@ const canManage = [protect, requireAccess("chat_moderation", "manage")];
  * /moderation/flags/{id}:
  *   patch:
  *     summary: Decide on a flag (staff)
- *     description: "suspended" also blocks the sender's account.
+ *     description: '"suspended" also blocks the sender''s account.'
  *     tags: [Moderation]
  *     security: [{ bearerAuth: [] }]
  *     requestBody:
