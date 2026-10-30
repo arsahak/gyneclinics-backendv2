@@ -6,7 +6,7 @@ import { ApiError } from "../utils/ApiError";
 import { ApiResponse } from "../utils/ApiResponse";
 import { assertSlotFree, bookableDoctor, bookFromPaymentIntent, newBookingReference } from "../utils/booking";
 import { getFees } from "../utils/money";
-import { regionalFee, type RegionId } from "../utils/regions";
+import { chargeRegion, regionalFee, type RegionId } from "../utils/regions";
 import { stripe, stripeError, stripeMode, toMinor } from "../utils/stripe";
 
 // Paying for a consultation with Stripe:
@@ -20,15 +20,18 @@ export const startCheckout = asyncHandler(async (req: Request, res: Response) =>
   const patient = req.user!;
   const b = req.body;
   const { doctor, doctorUser } = await bookableDoctor(b.doctorId);
-  const regionId = b.regionId as RegionId;
-  const fee = regionalFee(doctor.feeGBP, regionId, (await getFees()).regionMultipliers);
+  const { regionMultipliers } = await getFees();
+  // Never cheaper than the region of the patient's verified phone number.
+  const regionId = chargeRegion(b.regionId as RegionId, patient.phone, regionMultipliers);
+  const fee = regionalFee(doctor.feeGBP, regionId, regionMultipliers);
   if (fee.amount <= 0) throw new ApiError(409, "This consultation is free, so there's nothing to pay.");
 
   const startsAt: Date = b.mode === "instant" ? new Date() : b.startsAt;
   if (b.mode === "scheduled" && startsAt.getTime() < Date.now() - 5 * 60_000) {
     throw new ApiError(422, "That time has already passed. Please pick another slot");
   }
-  if (b.mode === "scheduled") await assertSlotFree(doctor._id, startsAt);
+  // Free and not held by someone else; then this checkout holds it while the patient pays.
+  if (b.mode === "scheduled") await assertSlotFree(doctor._id, startsAt, patient._id);
 
   const reference = await newBookingReference();
   const doctorName = doctorUser.fullName || "your doctor";
@@ -76,6 +79,8 @@ export const startCheckout = asyncHandler(async (req: Request, res: Response) =>
     reference,
     amount: fee.amount,
     currency: fee.currency,
+    // The region actually charged; can differ from the one the app sent.
+    regionId,
   });
 });
 

@@ -4,7 +4,8 @@ import { CONSULTATION_MODES } from "./consultation.model";
 // A booking waiting for its Stripe payment. Made when the patient opens the
 // payment form; the consultation is created from it once Stripe says the money
 // arrived (from the app, or from the webhook if the patient closed the page).
-// Old ones are removed after 3 days.
+// Old ones are removed after 30 days (kept that long so support can trace a
+// payment that didn't become a booking).
 
 export interface ICheckout extends Document {
   paymentIntentId: string;
@@ -42,6 +43,8 @@ const checkoutSchema = new Schema<ICheckout>(
   { timestamps: { createdAt: true, updatedAt: false } }
 );
 
-checkoutSchema.index({ createdAt: 1 }, { expireAfterSeconds: 3 * 24 * 3600 });
+checkoutSchema.index({ createdAt: 1 }, { expireAfterSeconds: 30 * 24 * 3600 });
+// Finding a slot someone is paying for (the hold in utils/booking.ts).
+checkoutSchema.index({ doctor: 1, startsAt: 1 });
 
 export const Checkout = mongoose.model<ICheckout>("Checkout", checkoutSchema);

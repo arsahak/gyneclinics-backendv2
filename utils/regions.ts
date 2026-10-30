@@ -1,3 +1,5 @@
+import { parsePhoneNumberFromString } from "libphonenumber-js";
+
 // Pricing regions, same as the webapp (webapp/lib/locale/regions.ts). Used to
 // send an announcement to one region, from each user's stored country.
 
@@ -63,6 +65,25 @@ export type RegionMultipliers = Record<RegionId, number>;
 
 /** The built-in multipliers, used until the team changes them. */
 export const DEFAULT_MULTIPLIERS = Object.fromEntries(REGION_IDS.map((id) => [id, REGION_PRICING[id].multiplier])) as RegionMultipliers;
+
+/** The pricing region of a phone number's country, e.g. +880… → south_asia. Null if unknown. */
+export function regionOfPhone(phone?: string | null): RegionId | null {
+  if (!phone) return null;
+  return regionOfCountry(parsePhoneNumberFromString(phone)?.country);
+}
+
+/**
+ * The region a patient is charged for. The app sends the region it detected
+ * (IP, GPS or time zone), which the patient could change, so it can only make
+ * the price higher: never lower than the region of the patient's verified
+ * phone number. A UK number pays UK prices, even through a VPN.
+ */
+export function chargeRegion(claimed: RegionId, phone: string | null | undefined, multipliers: RegionMultipliers = DEFAULT_MULTIPLIERS): RegionId {
+  const fromPhone = regionOfPhone(phone);
+  if (!fromPhone) return claimed;
+  const rate = (id: RegionId) => multipliers[id] ?? REGION_PRICING[id].multiplier;
+  return rate(fromPhone) > rate(claimed) ? fromPhone : claimed;
+}
 
 /** What a patient in this region pays: a whole number in the region's currency (0 = free). */
 export function regionalFee(feeGBP: number, regionId: RegionId, multipliers: RegionMultipliers = DEFAULT_MULTIPLIERS): { amount: number; currency: "GBP" | "USD" } {

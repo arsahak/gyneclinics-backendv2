@@ -10,6 +10,7 @@ export const STAFF_EVENTS = [
   "doctor_update",
   "consultation_booked",
   "payment_refunded",
+  "payment_problem",
   "withdrawal_requested",
   "report_created",
   "chat_flagged",

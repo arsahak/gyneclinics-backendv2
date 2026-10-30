@@ -8,7 +8,7 @@ import { ApiResponse } from "../utils/ApiResponse";
 import { CONSULTATION_STAGES, consultationTimes, stageFilter, stageOf, type ConsultationStage } from "../utils/consultationStage";
 import { assertSlotFree, bookableDoctor, bookedStarts, newBookingReference, saveBooking } from "../utils/booking";
 import { getFees } from "../utils/money";
-import { REGION_IDS, regionalFee, type RegionId } from "../utils/regions";
+import { chargeRegion, REGION_IDS, regionalFee, type RegionId } from "../utils/regions";
 
 /**
  * A free booking (the doctor's fee is 0): nothing to pay, so it's saved now.
@@ -18,15 +18,18 @@ export const createConsultation = asyncHandler(async (req: Request, res: Respons
   const patient = req.user!;
   const b = req.body;
   const { doctor, doctorUser } = await bookableDoctor(b.doctorId);
-  const regionId = (REGION_IDS as string[]).includes(b.regionId) ? (b.regionId as RegionId) : "europe";
-  const fee = regionalFee(doctor.feeGBP, regionId, (await getFees()).regionMultipliers);
+  const { regionMultipliers } = await getFees();
+  const claimed = (REGION_IDS as string[]).includes(b.regionId) ? (b.regionId as RegionId) : "europe";
+  // Never cheaper than the region of the patient's verified phone number.
+  const regionId = chargeRegion(claimed, patient.phone, regionMultipliers);
+  const fee = regionalFee(doctor.feeGBP, regionId, regionMultipliers);
   if (fee.amount > 0) throw new ApiError(402, "This consultation needs payment. Please pay to book it.");
 
   const startsAt: Date = b.mode === "instant" ? new Date() : b.startsAt;
   if (b.mode === "scheduled" && startsAt.getTime() < Date.now() - 5 * 60_000) {
     throw new ApiError(422, "That time has already passed. Please pick another slot");
   }
-  if (b.mode === "scheduled") await assertSlotFree(doctor._id, startsAt);
+  if (b.mode === "scheduled") await assertSlotFree(doctor._id, startsAt, patient._id);
 
   try {
     const { consultation, sms } = await saveBooking({

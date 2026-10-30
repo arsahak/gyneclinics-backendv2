@@ -80,8 +80,15 @@ export const env = {
     apiKeySecret: process.env.TWILIO_API_KEY_SECRET?.trim() || "",
     // Video room names start with this, so rooms from different setups don't mix.
     roomPrefix: process.env.TWILIO_ROOM_PREFIX?.trim() || "gyneclinics",
-    // Sends our SMS (sign-in codes, booking confirmations). Without it, SMS are only logged.
+    // Where video calls are routed. "gll" lets Twilio use the region nearest the
+    // first person to join; or a fixed region such as "ie1" (Ireland) or "us1".
+    videoRegion: process.env.TWILIO_VIDEO_REGION?.trim() || "gll",
+    // Sends our other SMS (booking confirmations). Without it, those SMS are only logged.
     messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID?.trim() || "",
+    // Twilio Verify service for sign-in codes. Verify picks a sender that works
+    // in each country, so codes reach any country. Without it, codes go through
+    // the Messaging Service above, which only reaches countries it has a sender for.
+    verifyServiceSid: process.env.TWILIO_VERIFY_SERVICE_SID?.trim() || "",
   },
   // Dev-only: this fixed code is also accepted at sign-in (real codes are still
   // sent). Never used in production, even if set.

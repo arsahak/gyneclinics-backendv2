@@ -50,12 +50,31 @@ export async function bookedStarts(doctorId: unknown): Promise<Date[]> {
   return Consultation.find({ ...BOOKED, doctor: doctorId, startsAt: { $gte: new Date() } }).distinct("startsAt");
 }
 
-/** Refuses a scheduled slot someone else already has. */
-export async function assertSlotFree(doctorId: unknown, startsAt: Date) {
+/** While a patient pays, their slot is held for this long (same as the apps' CONSULTATION_POLICY.slotHoldMinutes). */
+export const SLOT_HOLD_MINUTES = 10;
+
+/**
+ * Refuses a scheduled slot someone else already has, or that another patient
+ * started paying for in the last SLOT_HOLD_MINUTES (the slot is held for them).
+ */
+export async function assertSlotFree(doctorId: unknown, startsAt: Date, patientId?: unknown) {
   if (await Consultation.exists({ ...BOOKED, doctor: doctorId, startsAt })) {
     throw new ApiError(409, "Someone has just booked this time. Please pick another slot");
   }
+  const held = await Checkout.exists({
+    doctor: doctorId,
+    mode: "scheduled",
+    startsAt,
+    consultation: { $exists: false },
+    createdAt: { $gt: new Date(Date.now() - SLOT_HOLD_MINUTES * 60_000) },
+    ...(patientId ? { patient: { $ne: patientId } } : {}),
+  });
+  if (held) throw new ApiError(409, "Someone is paying for this time right now. Please pick another slot");
 }
+
+/** Said to the patient when their paid slot was taken first; their payment is refunded. */
+export const SLOT_TAKEN_REFUNDED =
+  "Someone else booked this time just before your payment went through. We've refunded you in full. Please pick another time.";
 
 /** "GC-" and 6 letters or digits nobody has used yet. */
 export async function newBookingReference(): Promise<string> {
@@ -173,6 +192,17 @@ export async function bookFromPaymentIntent(paymentIntentId: string): Promise<Pa
   if (intent.status !== "succeeded") throw new ApiError(402, "Your payment didn't go through. You haven't been charged.");
   if (fromMinor(intent.amount_received) !== checkout.amount || intent.currency.toUpperCase() !== checkout.currency) {
     throw new ApiError(409, "The amount paid doesn't match this booking. Please contact support.");
+  }
+
+  // The slot was taken while this patient paid (their hold ran out, or two
+  // payments finished together): refund, so nobody is charged for nothing.
+  // Refunding again (app and webhook both get here) returns the same refund.
+  if (checkout.mode === "scheduled" && (await Consultation.exists({ ...BOOKED, doctor: checkout.doctor, startsAt: checkout.startsAt }))) {
+    await stripe().refunds.create(
+      { payment_intent: intent.id, reason: "requested_by_customer", metadata: { reference: checkout.reference, note: "Slot taken before the booking was saved" } },
+      { idempotencyKey: `slot-taken-${intent.id}` }
+    );
+    throw new ApiError(409, SLOT_TAKEN_REFUNDED);
   }
 
   const [patient, doctorRow] = await Promise.all([User.findById(checkout.patient), Doctor.findById(checkout.doctor)]);

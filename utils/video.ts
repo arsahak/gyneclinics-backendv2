@@ -20,20 +20,29 @@ const getClient = () => {
   return client;
 };
 
+interface RoomOptions {
+  /** Twilio removes each person after this long (Twilio allows 10 minutes to 24 hours). */
+  maxMinutes: number;
+  /** How many people can be in the room at once. */
+  maxParticipants: number;
+}
+
 /**
- * Makes sure the room is open, so it starts with our limits: each person can
- * stay at most `maxMinutes`, and an empty room closes after 5 minutes.
+ * Makes sure the room is open, so it starts with our limits. An empty room
+ * closes after 5 minutes. These options only apply when the room is created:
+ * if it's already open, we join it as it is.
  */
-export async function openRoom(name: string, maxMinutes: number) {
+export async function openRoom(name: string, { maxMinutes, maxParticipants }: RoomOptions) {
   const rooms = getClient().video.v1.rooms;
   try {
     return await rooms.create({
       uniqueName: name,
       type: "group",
-      maxParticipants: 2,
-      maxParticipantDuration: maxMinutes * 60,
+      maxParticipants,
+      maxParticipantDuration: Math.min(24 * 60, Math.max(10, maxMinutes)) * 60,
       emptyRoomTimeout: 5,
       unusedRoomTimeout: 5,
+      mediaRegion: env.twilio.videoRegion,
     });
   } catch (error) {
     // 53113: a room with this name is already open. Join that one.

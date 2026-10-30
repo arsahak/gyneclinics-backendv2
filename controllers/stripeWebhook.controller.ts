@@ -6,9 +6,9 @@ import { Consultation } from "../models/consultation.model";
 import { Doctor } from "../models/doctor.model";
 import { Withdrawal } from "../models/withdrawal.model";
 import { ApiError } from "../utils/ApiError";
-import { bookFromPaymentIntent } from "../utils/booking";
+import { bookFromPaymentIntent, SLOT_TAKEN_REFUNDED } from "../utils/booking";
 import { syncStripeAccount } from "../utils/connect";
-import { stripe } from "../utils/stripe";
+import { stripe, stripeUrl } from "../utils/stripe";
 import { alertStaff, moneyText } from "../utils/staffAlerts";
 
 // POST /api/v1/stripe/webhook (raw body, signed by Stripe). In the Stripe
@@ -28,9 +28,22 @@ async function handle(event: Stripe.Event) {
       try {
         await bookFromPaymentIntent(intent.id);
       } catch (error) {
-        // Nothing to retry for (no checkout, mismatch): log it for support.
-        if (error instanceof ApiError && error.statusCode < 500) console.error(`Stripe ${intent.id}: ${error.message}`);
-        else throw error;
+        if (!(error instanceof ApiError) || error.statusCode >= 500) throw error;
+        // Still processing: Stripe sends payment_intent.succeeded again when it clears.
+        if (error.statusCode === 202) return;
+        // Paid but no booking (no checkout, amount mismatch, slot taken…):
+        // nothing to retry, so tell the team. This event comes once per payment.
+        console.error(`Stripe ${intent.id}: ${error.message}`);
+        const amount = moneyText(intent.amount_received / 100, intent.currency.toUpperCase());
+        const refunded = error.message === SLOT_TAKEN_REFUNDED;
+        await alertStaff({
+          type: "payment_problem",
+          areas: ["payments"],
+          priority: refunded ? "normal" : "urgent",
+          title: refunded ? `${amount} refunded: slot already taken` : `${amount} paid but not booked`,
+          body: `${intent.metadata.reference ?? intent.id}: ${error.message}${refunded ? "" : " Check it in Stripe and refund or book it by hand."} ${stripeUrl(`payments/${intent.id}`)}`,
+          link: "/payments",
+        });
       }
       return;
     }
